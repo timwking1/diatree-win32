@@ -104,18 +104,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             TVINSERTSTRUCT tvinsert;    //Insert struct
             HTREEITEM hRoot;            //Root item of the tree
             
-            /*
-            TreeNode myRootNode(L"My Root Node");
-
-            tvinsert.hParent = NULL;
-            tvinsert.hInsertAfter = TVI_ROOT;
-            tvinsert.item.mask = TVIF_TEXT;
-            tvinsert.item.pszText = myRootNode.text;
-            */
-
-
-
-
             tvinsert.hParent = NULL;
             tvinsert.hInsertAfter = TVI_ROOT;
             tvinsert.item.mask = TVIF_TEXT;
@@ -183,7 +171,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                         LPNMTREEVIEW lpnmtv = (LPNMTREEVIEW)lParam;
                         HTREEITEM hSelectedItem = lpnmtv->itemNew.hItem;
 
-                        MessageBox(hwnd, L"TreeView selection changed", L"Notification", MB_OK);
+                        //MessageBox(hwnd, L"TreeView selection changed", L"Notification", MB_OK);
                         break;
                     }
                     case TVN_ITEMEXPANDING:
@@ -191,7 +179,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                         LPNMTREEVIEW lpnmtv = (LPNMTREEVIEW)lParam;
                         HTREEITEM hItemExpanding = lpnmtv->itemNew.hItem;
 
-                        MessageBox(hwnd, L"Treeview item expanding", L"Notification", MB_OK);
+                        //MessageBox(hwnd, L"Treeview item expanding", L"Notification", MB_OK);
                         break;
                     }
                     case TVN_ITEMEXPANDED:
@@ -199,7 +187,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                         LPNMTREEVIEW lpnmtv = (LPNMTREEVIEW)lParam;
                         HTREEITEM hItemExpanded = lpnmtv->itemNew.hItem;
 
-                        MessageBox(hwnd, L"Treeview item expanded", L"Notification", MB_OK);
+                        //MessageBox(hwnd, L"Treeview item expanded", L"Notification", MB_OK);
                         break;
                     }
                 }
@@ -228,6 +216,37 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
 
+class DiaChoice
+{
+    public:
+        std::wstring text;
+        int nextWindow;
+};
+
+class DiaWindow
+{
+    enum WindowSize 
+    {
+        small, 
+        medium, 
+        large
+    };
+
+    public:
+        int id;
+        std::wstring text;
+        WindowSize windowSize;
+        bool isChoice;
+        std::vector<DiaChoice> choices;
+};
+
+class DiaConversation
+{
+    public:
+        int id;
+        std::wstring title;
+        std::vector<DiaWindow> windows;
+};
 
 class TreeNode
 {
@@ -241,8 +260,29 @@ class TreeNode
         {
             children.push_back(child);
         }
-    
 };
+
+std::shared_ptr<TreeNode> ConversationToTreeNode(const DiaConversation& conversation)
+{
+    auto rootNode = std::make_shared<TreeNode>(conversation.title);
+
+    for(const auto& window : conversation.windows)
+    {
+        auto windowNode = std::make_shared<TreeNode>(L"Window " + std::to_wstring(window.id) + L": " + window.text);
+
+        if(window.isChoice)
+        {
+            for (const auto& choice : window.choices)
+            {
+                auto choiceNode = std::make_shared<TreeNode>(L"Choice: " + choice.text);
+                windowNode->addChild(choiceNode);
+            }
+        }
+
+        rootNode->addChild(windowNode);
+    }
+    return rootNode;
+}
 
 //Function to insert a TreeNode into the TreeView
 HTREEITEM InsertTreeNode(HWND hTreeView, HTREEITEM hParent, std::shared_ptr<TreeNode> node)
