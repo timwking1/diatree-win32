@@ -17,6 +17,7 @@
 #include <vector>
 #include <string>
 #include <memory>
+using namespace std;
 
 //Window procedure definition
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wPaam, LPARAM lParam);
@@ -216,14 +217,14 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
 
-class DiaChoice
+struct DiaChoice
 {
     public:
         std::wstring text;
         int nextWindow;
 };
 
-class DiaWindow
+struct DiaWindow
 {
     enum WindowSize 
     {
@@ -246,6 +247,16 @@ class DiaConversation
         int id;
         std::wstring title;
         std::vector<DiaWindow> windows;
+
+        void AddWindow(int windowID, const std::wstring& text, bool isChoice)
+        {
+            windows.push_back({windowID, text, isChoice, {}});
+        }
+
+        void DeleteWindow(int windowID)
+        {
+            windows.erase(std::remove_if(windows.begin(), windows.end(), [windowID](const DiaWindow& win) {return win.id == windowID; }), windows.end());
+        }
 };
 
 class TreeNode
