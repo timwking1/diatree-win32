@@ -2,7 +2,6 @@
 *       diatree.cpp
 *       timwking1
 *       9-Feb 2025
-*       
 */
 #ifndef UNICODE
 #define UNICODE
@@ -17,6 +16,7 @@
 #include <vector>
 #include <string>
 #include <memory>
+#include <algorithm>
 using namespace std;
 
 //Window procedure definition
@@ -28,7 +28,100 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wPaam, LPARAM lParam);
 #define IDM_FILE_OPEN 2
 #define IDM_FILE_QUIT 3
 
-//wWinMain entry point
+#define IDM_TREE_CREATE 101
+#define IDM_TREE_UPDATE 102
+#define IDM_TREE_DELETE 103
+
+/*
+*   Business logic structs/classes
+*/
+
+struct DiaChoice
+{
+    public:
+        std::wstring text;
+        int nextWindow;
+};
+
+struct DiaWindow
+{
+    enum WindowSize 
+    {
+        small, 
+        medium, 
+        large
+    };
+
+    public:
+        int id;
+        std::wstring text;
+        WindowSize windowSize;
+        bool isChoice;
+        std::vector<DiaChoice> choices;
+};
+
+class DiaConversation
+{
+    public:
+        int id;
+        std::wstring title;
+        std::vector<DiaWindow> windows;
+
+        void AddWindow(int windowID, const std::wstring& text, bool isChoice)
+        {
+            windows.push_back({windowID, text, DiaWindow::WindowSize::medium, isChoice, {}});
+        }
+
+        void DeleteWindow(int windowID)
+        {
+            auto it = std::remove_if(windows.begin(), windows.end(),
+            [=](const DiaWindow& win) { return win.id == windowID; });
+
+            windows.erase(it, windows.end()); //Erase the removed elements
+        }
+};
+
+class TreeNode
+{
+    public:
+        std::wstring text;
+        std::vector<std::shared_ptr<TreeNode>> children;
+        //Constructor
+        TreeNode(const std::wstring&text) : text(text) {}
+
+        void addChild(std::shared_ptr<TreeNode> child)
+        {
+            children.push_back(child);
+        }
+};
+
+//Function to insert a TreeNode into the TreeView
+HTREEITEM InsertTreeNode(HWND hTreeView, HTREEITEM hParent, std::shared_ptr<TreeNode> node)
+{
+    TVINSERTSTRUCT tvinsert = {};
+    tvinsert.hParent = hParent;
+    tvinsert.hInsertAfter = TVI_LAST;
+    tvinsert.item.mask = TVIF_TEXT;
+
+    LPWSTR stringText = const_cast<LPWSTR>(node->text.c_str());
+    tvinsert.item.pszText = stringText;
+
+    HTREEITEM hItem = TreeView_InsertItem(hTreeView, &tvinsert);
+
+    for (auto& child : node-> children)
+    {
+        InsertTreeNode(hTreeView, hItem, child);
+    }
+
+    return hItem;
+}
+
+/*==================================================
+*
+*       wWinMain entry point
+*
+*==================================================*/
+
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow)
 {
     //Initialize the window class
@@ -73,13 +166,47 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     return 0;
 }
 
-//Window Procedure
+/*
+*   Context Menus
+*/
+void ShowFileContextMenu(HWND hWnd, POINT pt)
+{
+    HMENU hMenu = CreatePopupMenu();
+    if (!hMenu) return;
+
+    AppendMenu(hMenu, MF_STRING, IDM_FILE_NEW, L"New");
+    AppendMenu(hMenu, MF_STRING, IDM_FILE_OPEN, L"Open");
+    AppendMenu(hMenu, MF_SEPARATOR, 0, NULL);
+    AppendMenu(hMenu, MF_STRING, IDM_FILE_QUIT, L"Quit");
+
+    // Display menu at cursor position
+    TrackPopupMenu(hMenu, TPM_RIGHTBUTTON, pt.x, pt.y, 0, hWnd, NULL);
+    DestroyMenu(hMenu);
+}
+
+void ShowTreeContextMenu(HWND hWnd, POINT pt, HTREEITEM hItem)
+{
+    HMENU hMenu = CreatePopupMenu();
+    if (!hMenu) return;
+
+    AppendMenu(hMenu, MF_STRING, IDM_TREE_CREATE, L"Create");
+    AppendMenu(hMenu, MF_STRING, IDM_TREE_UPDATE, L"Update");
+    AppendMenu(hMenu, MF_STRING, IDM_TREE_DELETE, L"Delete");
+
+    // Display menu at cursor position
+    TrackPopupMenu(hMenu, TPM_RIGHTBUTTON, pt.x, pt.y, 0, hWnd, NULL);
+    DestroyMenu(hMenu);
+}
+
+/*==================================================
+*
+*       Window Procedure
+*
+*==================================================*/
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     //Definitions for window ui elements
     static HWND hTreeView;
-    static HMENU hMenu;
-    POINT point;
 
     //Message loop cases
     switch(uMsg)
@@ -104,14 +231,14 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             //Populate Treeview
             TVINSERTSTRUCT tvinsert;    //Insert struct
             HTREEITEM hRoot;            //Root item of the tree
-            
-            tvinsert.hParent = NULL;
-            tvinsert.hInsertAfter = TVI_ROOT;
-            tvinsert.item.mask = TVIF_TEXT;
-            tvinsert.item.pszText = TEXT("Root Item");
+
+            std::unique_ptr<TreeNode> RootNode = std::make_unique<TreeNode>(L"ROOT_CONVO"); //Create new instance for root
+            InsertTreeNode(hTreeView, NULL, std::move(RootNode));                           //Insert the instance
         
-            hRoot = TreeView_InsertItem(hTreeView, &tvinsert);
-        
+
+
+
+
             tvinsert.hParent = hRoot;
             tvinsert.hInsertAfter = TVI_LAST;
             tvinsert.item.pszText = TEXT("Child Item");
@@ -125,7 +252,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         case WM_COMMAND:
         {
             switch(LOWORD(wParam))
-            {
+            {   
+                //File operation commands
                 case IDM_FILE_NEW:
                 case IDM_FILE_OPEN:
                 {
@@ -137,29 +265,49 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     SendMessage(hwnd, WM_CLOSE, 0, 0);
                     break;
                 }
+                //TreeView commands
+                case IDM_TREE_CREATE:
+                {
+                    
+                }
+                case IDM_TREE_UPDATE:
+                case IDM_TREE_DELETE:
+                {
+                    break;
+                }
             }
             break;
         }
 
-        //When the right button is clicked (context menu opens)
-        case WM_RBUTTONUP:
+        case WM_CONTEXTMENU:
         {
-            point.x = LOWORD(lParam);
-            point.y = HIWORD(lParam);
+            HWND hWndContext = (HWND)wParam; // Handle of the clicked window
 
-            hMenu = CreatePopupMenu();
-            ClientToScreen(hwnd, &point);
-
-            AppendMenuW(hMenu, MF_STRING, IDM_FILE_NEW, L"&New");
-            AppendMenuW(hMenu, MF_STRING, IDM_FILE_OPEN, L"&Open");
-            AppendMenu(hMenu, MF_SEPARATOR, 0, NULL);
-            AppendMenu(hMenu, MF_STRING, IDM_FILE_QUIT, L"&Quit");
-
-            TrackPopupMenu(hMenu, TPM_RIGHTBUTTON, point.x, point.y, 0, hwnd, NULL);
-            DestroyMenu(hMenu);
+            // Get cursor position
+            POINT pt;
+            GetCursorPos(&pt);
+        
+            if (hWndContext == hTreeView) // If it's the TreeView
+            {
+                // Determine which TreeView item was clicked
+                TVHITTESTINFO ht = {};
+                ht.pt = pt;
+                ScreenToClient(hTreeView, &ht.pt);
+                HTREEITEM hItem = TreeView_HitTest(hTreeView, &ht);
+        
+                if (hItem)
+                {
+                    TreeView_SelectItem(hTreeView, hItem);
+                    ShowTreeContextMenu(hwnd, pt, hItem);
+                }
+            }
+            else // If it's another context (e.g., global file menu)
+            {
+                ShowFileContextMenu(hwnd, pt);
+            }
             break;
         }
-        
+
         //When the TreeView is updated
         case WM_NOTIFY:
         {
@@ -217,62 +365,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
 
-struct DiaChoice
-{
-    public:
-        std::wstring text;
-        int nextWindow;
-};
-
-struct DiaWindow
-{
-    enum WindowSize 
-    {
-        small, 
-        medium, 
-        large
-    };
-
-    public:
-        int id;
-        std::wstring text;
-        WindowSize windowSize;
-        bool isChoice;
-        std::vector<DiaChoice> choices;
-};
-
-class DiaConversation
-{
-    public:
-        int id;
-        std::wstring title;
-        std::vector<DiaWindow> windows;
-
-        void AddWindow(int windowID, const std::wstring& text, bool isChoice)
-        {
-            windows.push_back({windowID, text, isChoice, {}});
-        }
-
-        void DeleteWindow(int windowID)
-        {
-            windows.erase(std::remove_if(windows.begin(), windows.end(), [windowID](const DiaWindow& win) {return win.id == windowID; }), windows.end());
-        }
-};
-
-class TreeNode
-{
-    public:
-        std::wstring text;
-        std::vector<std::shared_ptr<TreeNode>> children;
-        //Constructor
-        TreeNode(const std::wstring&text) : text(text) {}
-
-        void addChild(std::shared_ptr<TreeNode> child)
-        {
-            children.push_back(child);
-        }
-};
-
 std::shared_ptr<TreeNode> ConversationToTreeNode(const DiaConversation& conversation)
 {
     auto rootNode = std::make_shared<TreeNode>(conversation.title);
@@ -293,25 +385,4 @@ std::shared_ptr<TreeNode> ConversationToTreeNode(const DiaConversation& conversa
         rootNode->addChild(windowNode);
     }
     return rootNode;
-}
-
-//Function to insert a TreeNode into the TreeView
-HTREEITEM InsertTreeNode(HWND hTreeView, HTREEITEM hParent, std::shared_ptr<TreeNode> node)
-{
-    TVINSERTSTRUCT tvinsert = {};
-    tvinsert.hParent = hParent;
-    tvinsert.hInsertAfter = TVI_LAST;
-    tvinsert.item.mask = TVIF_TEXT;
-
-    LPWSTR stringText = const_cast<LPWSTR>(node->text.c_str());
-    tvinsert.item.pszText = stringText;
-
-    HTREEITEM hItem = TreeView_InsertItem(hTreeView, &tvinsert);
-
-    for (auto& child : node-> children)
-    {
-        InsertTreeNode(hTreeView, hItem, child);
-    }
-
-    return hItem;
 }
