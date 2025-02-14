@@ -17,7 +17,10 @@
 #include <string>
 #include <memory>
 #include <algorithm>
+#include <fstream>
+#include <nlohmann/json.hpp>
 using namespace std;
+using json = nlohmann::json;
 
 //Window procedure definition
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wPaam, LPARAM lParam);
@@ -41,6 +44,15 @@ struct DiaChoice
     public:
         std::wstring text;
         int nextWindow;
+
+        json to_json() const 
+        {
+            return 
+            {
+                {"text", text}, 
+                {"nextWindow", nextWindow}
+            };
+        }
 };
 
 struct DiaWindow
@@ -58,6 +70,18 @@ struct DiaWindow
         WindowSize windowSize;
         bool isChoice;
         std::vector<DiaChoice> choices;
+
+        json to_json() const
+        {
+            return
+            {
+                {"id", id},
+                {"text", text},
+                {"windowSize", static_cast<int>(windowSize)},
+                {"isChoice", isChoice},
+                {"choices", json::array()}
+            };
+        }
 };
 
 class DiaConversation
@@ -78,6 +102,29 @@ class DiaConversation
             [=](const DiaWindow& win) { return win.id == windowID; });
 
             windows.erase(it, windows.end()); //Erase the removed elements
+        }
+
+        json to_json() const
+        {
+            json j;
+            j["id"] = id;
+            j["title"] = title;
+            j["windows"] = json::array();
+            for(const auto& window : windows)
+            {
+                j["windows"].push_back(window.to_json());
+            }
+            return j;
+        }
+
+        void SaveToFile(const std::string& filename) const
+        {
+            std::ofstream file(filename);
+            if(file.is_open())
+            {
+                file << to_json().dump(4);
+                file.close();
+            }
         }
 };
 
