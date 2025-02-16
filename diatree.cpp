@@ -3,41 +3,22 @@
 *       timwking1
 *       9-Feb 2025
 */
-#ifndef UNICODE
-#define UNICODE
-#endif 
-
 #define WIN32_LEAN_AND_MEAN
 #define WINVER                          0x0501
 #define _WIN32_WINNT                    0x0501
 
 #include <windows.h>
-#include <commctrl.h>
-#include <vector>
-#include <string>
-#include <memory>
-#include <algorithm>
-#include <fstream>
 #include <nlohmann/json.hpp>
-using namespace std;
-using json = nlohmann::json;
+#include "diatree.h"
 
-//Window procedure definition
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wPaam, LPARAM lParam);
-
-//Context menu
-#define WM_CONTEXTMENU                  0x007B
-#define IDM_FILE_NEW 1
-#define IDM_FILE_OPEN 2
-#define IDM_FILE_QUIT 3
-
-#define IDM_TREE_CREATE 101
-#define IDM_TREE_UPDATE 102
-#define IDM_TREE_DELETE 103
-
-/*
-*   Business logic structs/classes
-*/
+//Convert wide (Unicode) strings to narrow strings...
+std::string WideStringToMultiString(const std::wstring& wstr)
+{
+    int bufSize = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, NULL, 0, NULL, NULL);
+    std::string convertedString(bufSize, 0);
+    WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), -1, &convertedString[0], bufSize, NULL, NULL);
+    return convertedString;
+}
 
 struct DiaChoice
 {
@@ -54,6 +35,12 @@ struct DiaChoice
             };
         }
 };
+
+void from_json(const json& j, DiaChoice& choice)
+{
+    j.at("text").get_to(choice.text);
+    j.at("nextWindow").get_to(choice.nextWindow);
+}
 
 struct DiaWindow
 {
@@ -83,6 +70,17 @@ struct DiaWindow
             };
         }
 };
+
+void from_json(const json& j, DiaWindow& window)
+{
+    j.at("id").get_to(window.id);
+    j.at("text").get_to(window.text);
+    int size;
+    j.at("windowSize").get_to(size);
+    window.windowSize = static_cast<DiaWindow::WindowSize>(size);
+    j.at("isChoice").get_to(window.isChoice);
+    j.at("choices").get_to(window.choices);
+}
 
 class DiaConversation
 {
@@ -128,6 +126,13 @@ class DiaConversation
         }
 };
 
+void from_json(const json& j, DiaConversation& convo)
+{
+    j.at("id").get_to(convo.id);
+    j.at("title").get_to(convo.title);
+    j.at("windows").get_to(convo.windows);
+}
+
 class TreeNode
 {
     public:
@@ -141,6 +146,52 @@ class TreeNode
             children.push_back(child);
         }
 };
+
+bool LoadConversationFromFile(const std::string& filename, DiaConversation& conversation)
+{
+    std::ifstream file(filename);
+    if(!file.is_open())
+    {
+        return false;
+    }
+    json j;
+    file >> j;
+    conversation = j.get<DiaConversation>();
+    return true;
+}
+
+void UpdateTreeView(HWND hTreeView, const DiaConversation& conversation)
+{
+    TreeView_DeleteAllItems(hTreeView);
+
+    //Root item
+    TVINSERTSTRUCT tvinsert = {};
+    tvinsert.hParent = NULL;
+    tvinsert.hInsertAfter = TVI_ROOT;
+    tvinsert.item.mask = TVIF_TEXT;
+    tvinsert.item.pszText = const_cast<LPWSTR>(conversation.title.c_str());
+    HTREEITEM hRoot = TreeView_InsertItem(hTreeView, &tvinsert);
+
+    //Child Items
+    for (const auto& window : conversation.windows)
+    {
+        tvinsert.hParent = hRoot;
+        tvinsert.hInsertAfter = TVI_LAST;
+        tvinsert.item.pszText = const_cast<LPWSTR>(window.text.c_str());
+        HTREEITEM hWindow = TreeView_InsertItem(hTreeView, &tvinsert);
+
+            //Sub Items
+        for (const auto& choice : window.choices)
+        {
+            tvinsert.hParent = hWindow;
+            tvinsert.hInsertAfter = TVI_LAST;
+            tvinsert.item.pszText = const_cast<LPWSTR>(choice.text.c_str());
+            TreeView_InsertItem(hTreeView, &tvinsert);
+        }
+    }
+
+    TreeView_Expand(hTreeView, hRoot, TVE_EXPAND);
+}
 
 //Function to insert a TreeNode into the TreeView
 HTREEITEM InsertTreeNode(HWND hTreeView, HTREEITEM hParent, std::shared_ptr<TreeNode> node)
@@ -245,6 +296,38 @@ void ShowTreeContextMenu(HWND hWnd, POINT pt, HTREEITEM hItem)
     DestroyMenu(hMenu);
 }
 
+
+std::string OpenFileDialog(HWND hwnd) 
+{
+    OPENFILENAME ofn;         // common dialog box structure
+    WCHAR szFile[260];        // buffer for file name
+    // Initialize OPENFILENAME
+    ZeroMemory(&ofn, sizeof(ofn));
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = hwnd;
+    ofn.lpstrFile = szFile;
+    // Set lpstrFile[0] to '\0' so that GetOpenFileName does not 
+    // use the contents of szFile to initialize itself.
+    ofn.lpstrFile[0] = '\0';
+    ofn.nMaxFile = sizeof(szFile) / sizeof(szFile[0]);
+    ofn.lpstrFilter = L"All\0*.*\0Text\0*.TXT\0";
+    ofn.nFilterIndex = 1;
+    ofn.lpstrFileTitle = NULL;
+    ofn.nMaxFileTitle = 0;
+    ofn.lpstrInitialDir = NULL;
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+
+    // Display the Open dialog box. 
+    if (GetOpenFileName(&ofn) == TRUE) {
+        return WideStringToMultiString(ofn.lpstrFile);
+    } 
+    else 
+    {
+        return "";
+    }
+}
+
+
 /*==================================================
 *
 *       Window Procedure
@@ -304,7 +387,19 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 case IDM_FILE_NEW:
                 case IDM_FILE_OPEN:
                 {
-                    MessageBeep(MB_ICONINFORMATION);
+                    std::string filename = OpenFileDialog(hwnd);
+                    if (!filename.empty())
+                    {
+                        DiaConversation conversation;
+                        if (LoadConversationFromFile(filename, conversation))
+                        {
+                            UpdateTreeView(hTreeView, conversation);
+                        }
+                        else
+                        {
+                            MessageBox(hwnd, L"Failed to load the conversation.", L"Error", MB_OK | MB_ICONERROR);
+                        }
+                    }
                     break;
                 }
                 case IDM_FILE_QUIT:
