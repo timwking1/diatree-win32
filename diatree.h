@@ -1,3 +1,8 @@
+/*
+*       diatree.h
+*       timwking1
+*       17-Feb 2025
+*/
 #ifndef DIATREE_H
 #define DIATREE_H
 
